@@ -177,8 +177,10 @@ export class Database {
   async responseObject(promise: Promise<any>, message: string = ""): Promise<IDatabaseResponse> {
     try {
       return Promise.resolve({ result: await promise, error: false, message });
-    } catch (error) {
-      return Promise.resolve({ result: [], error: true, message: error.errmsg ? error.errmsg : error });
+    } catch (error: unknown) {
+      const err = error as { errmsg?: string; message?: string };
+      const errorMessage = err?.errmsg || err?.message || String(error);
+      return Promise.resolve({ result: [], error: true, message: errorMessage });
     }
   }
 

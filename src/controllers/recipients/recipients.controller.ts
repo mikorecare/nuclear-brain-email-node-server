@@ -342,7 +342,8 @@ export class RecipientController {
           return next({ status: 403, message: "`Birth Date` field is required on CSV" });
         }
 
-        const emailRegex = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+        const emailRegex =
+          /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
 
         json = uniqBy(
           json
@@ -640,7 +641,7 @@ export class RecipientController {
 
       const hadSubscribed = await new Promise(resolve => {
         result[0].subscribed.map((q: any) => {
-          if (JSON.stringify(q) === JSON.stringify(mongoose.Types.ObjectId(audiences))) {
+          if (JSON.stringify(q) === JSON.stringify(new mongoose.Types.ObjectId(audiences))) {
             return resolve(true);
           }
         });
@@ -744,9 +745,33 @@ export class RecipientController {
     return next({ status: 200, data: { ids }, message: "Recipients successfully deleted." });
   }
 
-  searchQuery(req: Request, audience?: string): { $or: { [x: string]: string | RegExp }[]; audiences?: { $elemMatch?: { $eq: string } } } {
-    const setKey = (key: string) => ({ [key]: key === "email" ? req.query[key] : new RegExp(req.query[key], "i") });
-    const query = { $or: Object.keys(req.query).map(key => setKey(key)) };
-    return audience ? { ...query, audiences: { $elemMatch: { $eq: audience } } } : query;
+  searchQuery(
+    req: Request,
+    audience?: string
+  ): {
+    $or: { [x: string]: string | RegExp }[];
+    audiences?: { $elemMatch?: { $eq: string } };
+  } {
+    const setKey = (key: string) => {
+      const value = req.query[key];
+      if (typeof value === "string") {
+        return {
+          [key]: key === "email" ? value : new RegExp(value, "i"),
+        };
+      }
+      return {};
+    };
+
+    const filters = Object.keys(req.query)
+      .map(key => setKey(key))
+      .filter(q => Object.keys(q).length > 0);
+
+    const query: any = { $or: filters };
+
+    if (audience) {
+      query.audiences = { $elemMatch: { $eq: audience } };
+    }
+
+    return query;
   }
 }

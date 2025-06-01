@@ -1,8 +1,9 @@
 import * as bodyparser from "body-parser";
-import express, { NextFunction, Request, RequestHandler, Response } from "express";
+import express, { NextFunction, Request, RequestHandler, Response, ErrorRequestHandler } from "express";
 import { Injector } from "./Decorators/Injector";
 import { IRoute } from "./Interfaces";
 import { Callback, ErrorCallback } from "./Types";
+import "reflect-metadata";
 
 export * from "./Decorators/Controller";
 export * from "./Decorators/Methods";
@@ -30,18 +31,32 @@ export default class Rocket {
    * @param args.middlewares Array<Function> - List of middlewares
    * @param args.callback Function - Callback function that last to be called
    */
-  routes(args: { route?: string; controllers: any[]; middlewares?: any[]; callback?: ErrorCallback }): void {
-    const { middlewares = [], callback = (error: any, req: Request, res: Response, next: NextFunction): void => next() } = args;
+  routes(args: { route?: string; controllers: any[]; middlewares?: any[]; callback?: ErrorRequestHandler }): void {
+    const { middlewares = [], callback } = args;
+
     const router = express.Router();
-    args.controllers.map(controller => {
+
+    args.controllers.forEach(controller => {
       const instance = Injector.resolve<typeof controller>(controller);
       const prefix: string = Reflect.getMetadata("prefix", controller);
       const routes: IRoute[] = Reflect.getMetadata("routes", controller);
-      const method = (name: string): Callback => (req: Request, res: Response, next: NextFunction): void => instance[name](req, res, next);
-      routes.map(route => router[route.requestMethod](prefix + route.path, route.validations, method(route.methodName), callback));
+
+      const method =
+        (name: string): Callback =>
+        (req: Request, res: Response, next: NextFunction) =>
+          instance[name](req, res, next);
+
+      routes.forEach(route => {
+        router[route.requestMethod](prefix + route.path, route.validations, method(route.methodName));
+      });
     });
 
     this.app.use(args.route || "", middlewares, router);
+
+    // Attach the error handler AFTER all routes if it exists
+    if (callback) {
+      this.app.use(callback);
+    }
   }
 
   /**
@@ -49,12 +64,15 @@ export default class Rocket {
    * @param port number - Specify port number that the server will listen too.
    */
   start(port: number): void {
-    this.app.use((req: Request, res: Response) => {
+    this.app.use(((req, res, next) => {
       if (!req.route) {
         const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
         res.status(405).json({ status: "Invalid Request", message: `Request: (${req.method}) ${url} is invalid!` });
+      } else {
+        next();
       }
-    });
+    }) as express.RequestHandler);
+
     this.app.listen(port, () => console.log(`Started express on port ${port}`));
   }
 

@@ -1,4 +1,4 @@
-import { Express, NextFunction, Request, Response } from "express";
+import { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import { response } from "./middlewares/validate-response";
 import {
   AudienceController,
@@ -41,7 +41,9 @@ class Server {
     const tryCount = 4;
     return new Promise((resolve: any, reject) => {
       if (connection.readyState === 0 && tries < tryCount) {
-        connect(connectionUrl, { useCreateIndex: true, useUnifiedTopology: true, useNewUrlParser: true, useFindAndModify: false, autoIndex: true })
+        connect(connectionUrl, {
+          autoIndex: true,
+        })
           .then(() => resolve("Database connected"))
           .catch((error: any) => {
             if (tries < tryCount - 1) {
@@ -89,12 +91,15 @@ class Server {
 
   async start(): Promise<Express> {
     this.configRoutes();
-    this.app.use((req: Request, res: Response) => {
-      if (!req.route) {
-        const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-        res.status(405).json({ status: "Invalid Request", message: `Request: (${req.method}) ${url} is invalid!` });
-      }
-    });
+    const notFoundHandler: RequestHandler = (req, res, next) => {
+      const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+      res.status(405).json({
+        status: "Invalid Request",
+        message: `Request: (${req.method}) ${url} is invalid!`,
+      });
+    };
+
+    this.app.use(notFoundHandler);
     return this.connectDatabase(new Config().MONGO_CONNECTION_URL).then((data: any) => {
       return this.app;
     });

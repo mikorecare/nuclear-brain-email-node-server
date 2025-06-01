@@ -8,6 +8,7 @@ declare module "express" {
   // tslint:disable-next-line: interface-name
   interface Request {
     file: any;
+    session?: any;
   }
 }
 @Controller("/businesses")

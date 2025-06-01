@@ -1,4 +1,20 @@
-import aws from "aws-sdk";
+import {
+  SESClient,
+  CreateConfigurationSetCommand,
+  CreateConfigurationSetEventDestinationCommand,
+  CreateTemplateCommand,
+  DeleteConfigurationSetCommand,
+  DeleteIdentityCommand,
+  DeleteTemplateCommand,
+  GetTemplateCommand,
+  ListConfigurationSetsCommand,
+  ListIdentitiesCommand,
+  GetIdentityVerificationAttributesCommand,
+  SendBulkTemplatedEmailCommand,
+  UpdateTemplateCommand,
+  VerifyEmailIdentityCommand,
+} from "@aws-sdk/client-ses";
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import multer from "multer";
 import multerS3 from "multer-s3";
 import { config } from "dotenv";
@@ -13,238 +29,191 @@ interface IBulkEmailDestinations {
 }
 
 const { AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION } = process.env;
-aws.config.update({
-  accessKeyId: AWS_ACCESS_KEY_ID,
+
+const sesClient = new SESClient({
   region: AWS_REGION,
-  secretAccessKey: AWS_SECRET_ACCESS_KEY,
+  credentials: {
+    accessKeyId: AWS_ACCESS_KEY_ID!,
+    secretAccessKey: AWS_SECRET_ACCESS_KEY!,
+  },
 });
 
-const ses = new aws.SES({ correctClockSkew: true });
-const s3 = new aws.S3({ correctClockSkew: true });
+const s3Client = new S3Client({
+  region: AWS_REGION,
+  credentials: {
+    accessKeyId: AWS_ACCESS_KEY_ID!,
+    secretAccessKey: AWS_SECRET_ACCESS_KEY!,
+  },
+});
 
 export const SES = {
-  createConfigurationSet: (name: string) => {
-    return new Promise(resolve => {
-      ses.createConfigurationSet(
-        {
-          ConfigurationSet: {
-            Name: name,
+  createConfigurationSet: async (name: string) => {
+    try {
+      const createConfigSetCommand = new CreateConfigurationSetCommand({
+        ConfigurationSet: { Name: name },
+      });
+      await sesClient.send(createConfigSetCommand);
+
+      const createEventDestinationCommand = new CreateConfigurationSetEventDestinationCommand({
+        ConfigurationSetName: name,
+        EventDestination: {
+          Enabled: true,
+          MatchingEventTypes: ["bounce", "complaint", "open", "click", "reject"],
+          Name: name,
+          SNSDestination: {
+            TopicARN: "arn:aws:sns:us-east-1:971560487883:email-https",
           },
         },
-        (err, data) => {
-          if (err) {
-            resolve({ status: false, error: err });
-          } else {
-            const params = {
-              ConfigurationSetName: name,
-              EventDestination: {
-                Enabled: true,
-                MatchingEventTypes: ["bounce", "complaint", "open", "click", "reject"],
-                Name: name,
-                SNSDestination: {
-                  TopicARN: "arn:aws:sns:us-east-1:971560487883:email-https",
-                },
-              },
-            };
-            ses.createConfigurationSetEventDestination(params, (configErr, configData) => {
-              if (configErr) {
-                resolve({ status: false, error: configErr });
-              } else {
-                resolve({ status: true, data: configData });
-              }
-            });
-          }
-        }
-      );
-    });
+      });
+      const data = await sesClient.send(createEventDestinationCommand);
+      return { status: true, data };
+    } catch (error) {
+      return { status: false, error };
+    }
   },
-  createTemplate: (name: string, html: string) => {
-    return new Promise(resolve => {
-      const params = {
+  createTemplate: async (name: string, html: string) => {
+    try {
+      const command = new CreateTemplateCommand({
         Template: {
           HtmlPart: html,
           SubjectPart: "N/A",
           TemplateName: name,
         },
-      };
-      ses.createTemplate(params, (err, data) => {
-        if (err) {
-          console.log("createTemplate()", err);
-          resolve({ status: false, error: err });
-        } else {
-          resolve({ status: true, data });
-        }
       });
-    });
+      const data = await sesClient.send(command);
+      return { status: true, data };
+    } catch (error) {
+      console.log("createTemplate()", error);
+      return { status: false, error };
+    }
   },
-  deleteConfigurationSet: (name: string) => {
-    return new Promise<void>(resolve => {
-      ses.deleteConfigurationSet(
-        {
-          ConfigurationSetName: name,
-        },
-        (err, _) => {
-          resolve();
-        }
-      );
-    });
-  },
-  deleteIdentity: (emailAddress: string) => {
-    return new Promise(resolve => {
-      ses.deleteIdentity(
-        {
-          Identity: emailAddress,
-        },
-        (err, data) => {
-          if (err) {
-            resolve({ status: false, error: err });
-          } else {
-            resolve({ status: true, data });
-          }
-        }
-      );
-    });
-  },
-  deleteTemplate: (name: string) => {
-    return new Promise(resolve => {
-      ses.deleteTemplate(
-        {
-          TemplateName: name,
-        },
-        (err, data) => {
-          if (err) {
-            console.log("deleteTemplate()", err);
-            resolve({ status: false, error: err });
-          } else {
-            resolve({ status: true, data });
-          }
-        }
-      );
-    });
-  },
-  getTemplate: (name: String) => {
-    return new Promise(resolve => {
-      const params = {
-        TemplateName: name as string,
-      };
-      ses.getTemplate(params, (err, data) => {
-        if (err) {
-          resolve({ status: false, error: err });
-        } else {
-          resolve({ status: true, data });
-        }
+  deleteConfigurationSet: async (name: string) => {
+    try {
+      const command = new DeleteConfigurationSetCommand({
+        ConfigurationSetName: name,
       });
-    });
+      await sesClient.send(command);
+    } catch (error) {
+      throw error;
+    }
   },
-  listConfigurationSets: () => {
-    return new Promise(resolve => {
-      ses.listConfigurationSets(
-        {
-          NextToken: "",
-          MaxItems: 1000,
-        },
-        (err, data) => {
-          if (err) {
-            return resolve([]);
-          }
-          return resolve(data.ConfigurationSets ? data.ConfigurationSets.map(q => q.Name) : []);
-        }
-      );
-    });
+  deleteIdentity: async (emailAddress: string) => {
+    try {
+      const command = new DeleteIdentityCommand({
+        Identity: emailAddress,
+      });
+      const data = await sesClient.send(command);
+      return { status: true, data };
+    } catch (error) {
+      return { status: false, error };
+    }
   },
-  listIdentities: () => {
-    return new Promise(resolve => {
-      const params = {
+  deleteTemplate: async (name: string) => {
+    try {
+      const command = new DeleteTemplateCommand({
+        TemplateName: name,
+      });
+      const data = await sesClient.send(command);
+      return { status: true, data };
+    } catch (error) {
+      console.log("deleteTemplate()", error);
+      return { status: false, error };
+    }
+  },
+  getTemplate: async (name: string) => {
+    try {
+      const command = new GetTemplateCommand({
+        TemplateName: name,
+      });
+      const data = await sesClient.send(command);
+      return { status: true, data };
+    } catch (error) {
+      return { status: false, error };
+    }
+  },
+  listConfigurationSets: async () => {
+    try {
+      const command = new ListConfigurationSetsCommand({
+        MaxItems: 1000,
+      });
+      const data = await sesClient.send(command);
+      return data.ConfigurationSets ? data.ConfigurationSets.map(q => q.Name) : [];
+    } catch (error) {
+      return [];
+    }
+  },
+  listIdentities: async () => {
+    try {
+      const listCommand = new ListIdentitiesCommand({
         IdentityType: "EmailAddress",
         MaxItems: 1000,
-        NextToken: "",
-      };
-      ses.listIdentities(params, (err, data) => {
-        if (err) {
-          resolve({ status: false, error: err });
-        } else {
-          ses.getIdentityVerificationAttributes(
-            {
-              Identities: data.Identities,
-            },
-            (verifyError, verifyData) => {
-              if (verifyError) {
-                resolve({ status: false, error: verifyError });
-              } else {
-                resolve({ status: true, data: verifyData });
-              }
-            }
-          );
-        }
       });
-    });
+      const data = await sesClient.send(listCommand);
+
+      const verifyCommand = new GetIdentityVerificationAttributesCommand({
+        Identities: data.Identities!,
+      });
+      const verifyData = await sesClient.send(verifyCommand);
+      return { status: true, data: verifyData };
+    } catch (error) {
+      return { status: false, error };
+    }
   },
-  sendBulkTemplatedEmail: (source: string, template: string, destinations: Array<IBulkEmailDestinations>, audiences: string) => {
-    return new Promise(resolve => {
-      const params = {
+  sendBulkTemplatedEmail: async (source: string, template: string, destinations: Array<IBulkEmailDestinations>, audiences: string) => {
+    try {
+      const command = new SendBulkTemplatedEmailCommand({
         ConfigurationSetName: `${template}-${audiences}`,
         DefaultTemplateData: JSON.stringify({ unsub: "", email: "" }),
         Destinations: destinations,
         Source: source,
         Template: template,
-      };
-      ses.sendBulkTemplatedEmail(params, (err, data) => {
-        if (err) {
-          console.log("sendBulkTemplatedEmail() error", err);
-          resolve({ status: false, error: err });
-        } else {
-          resolve({ status: true, data });
-        }
       });
-    });
+      const data = await sesClient.send(command);
+      return { status: true, data };
+    } catch (error) {
+      console.log("sendBulkTemplatedEmail() error", error);
+      return { status: false, error };
+    }
   },
-  updateTemplate: (TemplateName: string, SubjectPart: string, HtmlPart: string, TextPart: string) => {
-    return new Promise(resolve => {
-      if (!TemplateName) {
-        return resolve({ status: false, error: "name is required" });
-      }
-
-      ses.updateTemplate({ Template: { TemplateName, SubjectPart, HtmlPart, TextPart } }, (err, data) => {
-        if (!err) {
-          resolve({ status: true, data });
-        } else {
-          console.log("updateTemplate() error", err);
-          resolve({ status: false, error: err });
-        }
+  updateTemplate: async (TemplateName: string, SubjectPart: string, HtmlPart: string, TextPart: string) => {
+    if (!TemplateName) {
+      return { status: false, error: "name is required" };
+    }
+    try {
+      const command = new UpdateTemplateCommand({
+        Template: { TemplateName, SubjectPart, HtmlPart, TextPart },
       });
-    });
+      const data = await sesClient.send(command);
+      return { status: true, data };
+    } catch (error) {
+      console.log("updateTemplate() error", error);
+      return { status: false, error };
+    }
   },
-  verifyEmail: (emailAddress: string) => {
-    return new Promise(resolve => {
-      ses.verifyEmailIdentity(
-        {
-          EmailAddress: emailAddress,
-        },
-        (err, data) => {
-          if (err) {
-            resolve({ status: false, error: err });
-          } else {
-            resolve({ status: true, data });
-          }
-        }
-      );
-    });
+  verifyEmail: async (emailAddress: string) => {
+    try {
+      const command = new VerifyEmailIdentityCommand({
+        EmailAddress: emailAddress,
+      });
+      const data = await sesClient.send(command);
+      return { status: true, data };
+    } catch (error) {
+      return { status: false, error };
+    }
   },
 };
 
 export const S3 = {
-  removeFile: (bucket: string, key: string): any => {
-    s3.deleteObject(
-      {
+  removeFile: async (bucket: string, key: string) => {
+    try {
+      const command = new DeleteObjectCommand({
         Bucket: bucket,
         Key: key,
-      },
-      (err: any, data: any) => {
-        if (err) {
-          console.log(err, "Error upon removing file: S3()");
-        }
-      }
-    );
+      });
+      await s3Client.send(command);
+    } catch (error) {
+      console.log(error, "Error upon removing file: S3()");
+    }
   },
   uploadFile: (fieldName: string, folder: string, fileName?: string): any => {
     return multer({
@@ -257,7 +226,7 @@ export const S3 = {
         metadata(_: any, file: any, cb: Function): void {
           cb(null, { fieldName: file.fieldname });
         },
-        s3,
+        s3: s3Client as any,
       }),
     }).single(fieldName);
   },

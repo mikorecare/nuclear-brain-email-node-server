@@ -13,7 +13,7 @@ declare module "express" {
 }
 
 export const successHandler = (req: Request, res: Response, next: NextFunction): void => {
-  req.query.isCheckJWT = true;
+  req.query.isCheckJWT = "true";
   return next();
 };
 

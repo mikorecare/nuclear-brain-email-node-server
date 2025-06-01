@@ -2,7 +2,6 @@ import { exec } from "child_process";
 import http from "http";
 import util from "util";
 import server from "./server";
-import realtime from "socket.io";
 import SocketManager from "./helpers/socket";
 import { Express } from "express";
 

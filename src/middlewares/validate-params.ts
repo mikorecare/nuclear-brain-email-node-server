@@ -94,7 +94,11 @@ const checkParams = (res: Response, checks: any[]): boolean => {
 class RequestManager {
   private refRequestParams: any;
 
-  constructor(private requestParams: IRequestParameters, dateFields: string[] = [], idParams: string[] = []) {
+  constructor(
+    private requestParams: IRequestParameters,
+    dateFields: string[] = [],
+    idParams: string[] = []
+  ) {
     this.requestParams = requestParams;
     this.refRequestParams = { ...this.requestParams };
     this.sanitize();
@@ -183,7 +187,8 @@ class RequestManager {
           properties.values = regex;
           properties.isRegEx = true;
         } catch (error) {
-          properties.hasError = error.message;
+          console.error((error as Error).message);
+          properties.hasError = true;
         }
       }
     }
@@ -256,7 +261,7 @@ const events = (req: Request, res: Response, next: NextFunction): void => {
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields, defaultParams.idFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields, defaultParams.idFields).getRequestParams();
     params.populate = "Kiosk";
     params.Status = { $ne: "Deleted" };
 
@@ -280,7 +285,7 @@ const song = (req: Request, res: Response, next: NextFunction): void => {
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields).getRequestParams();
     if (params.DateCreated && params.DateCreated.hasError) {
       res.status(422).send({ message: "Contains invalid date(s). Use YYYY-MM-DD e.g 2018-12-31.", status: "validation error" });
       return;
@@ -296,7 +301,7 @@ const accounts = (req: Request, res: Response, next: NextFunction): void => {
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields).getRequestParams();
     if (params.DateCreated && params.DateCreated.hasError) {
       res.status(422).send({ message: "Contains invalid date(s). Use YYYY-MM-DD e.g 2018-12-31.", status: "validation error" });
       return;
@@ -312,7 +317,7 @@ const assets = (req: Request, res: Response, next: NextFunction): void => {
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields).getRequestParams();
     if (params.DateCreated && params.DateCreated.hasError) {
       res.status(422).send({ message: "Contains invalid date(s). Use YYYY-MM-DD e.g 2018-12-31.", status: "validation error" });
       return;
@@ -328,7 +333,7 @@ const photos = (req: Request, res: Response, next: NextFunction): void => {
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields).getRequestParams();
     if (params.DateCreated && params.DateCreated.hasError) {
       res.status(422).send({ message: "Contains invalid date(s). Use YYYY-MM-DD e.g 2018-12-31.", status: "validation error" });
       return;
@@ -344,7 +349,7 @@ const video = (req: Request, res: Response, next: NextFunction): void => {
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields).getRequestParams();
     if (params.DateCreated && params.DateCreated.hasError) {
       res.status(422).send({ message: "Contains invalid date(s). Use YYYY-MM-DD e.g 2018-12-31.", status: "validation error" });
       return;
@@ -360,7 +365,7 @@ const videoMessage = (req: Request, res: Response, next: NextFunction): void => 
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields).getRequestParams();
     if (params.DateCreated && params.DateCreated.hasError) {
       res.status(422).send({ message: "Contains invalid date(s). Use YYYY-MM-DD e.g 2018-12-31.", status: "validation error" });
       return;
@@ -375,7 +380,7 @@ const kiosk = (req: Request, res: Response, next: NextFunction): void => {
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields).getRequestParams();
     if (params.DateCreated && params.DateCreated.hasError) {
       res.status(422).send({ message: "Contains invalid date(s). Use YYYY-MM-DD e.g 2018-12-31.", status: "validation error" });
       return;
@@ -390,7 +395,7 @@ const songPlay = (req: Request, res: Response, next: NextFunction): void => {
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields).getRequestParams();
     if (params.DateCreated && params.DateCreated.hasError) {
       res.status(422).send({ message: "Contains invalid date(s). Use YYYY-MM-DD e.g 2018-12-31.", status: "validation error" });
       return;
@@ -405,7 +410,7 @@ const payment = (req: Request, res: Response, next: NextFunction): void => {
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields).getRequestParams();
     if (params.DateCreated && params.DateCreated.hasError) {
       res.status(422).send({ message: "Contains invalid date(s). Use YYYY-MM-DD e.g 2018-12-31.", status: "validation error" });
       return;
@@ -420,7 +425,7 @@ const users = (req: Request, res: Response, next: NextFunction): void => {
     errors = checkParams(res, [check("PARAMETERS").isValidParams(defaultParams)]);
 
   if (!errors) {
-    const params = new RequestManager(req.query, defaultParams.dateFields).getRequestParams();
+    const params = new RequestManager(req.query as IRequestParameters, defaultParams.dateFields).getRequestParams();
     if (params.DateCreated && params.DateCreated.hasError) {
       res.status(422).send({ message: "Contains invalid date(s). Use YYYY-MM-DD e.g 2018-12-31.", status: "validation error" });
       return;

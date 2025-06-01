@@ -20,7 +20,7 @@ export class EmailsController {
       },
       {
         $match: {
-          templateId: mongoose.Types.ObjectId(templateId),
+          templateId: new mongoose.Types.ObjectId(templateId),
         },
       },
     ];
@@ -35,17 +35,13 @@ export class EmailsController {
       },
       {
         $match: {
-          _id: mongoose.Types.ObjectId(audienceId),
+          _id: new mongoose.Types.ObjectId(audienceId),
         },
       },
     ];
   };
 
-  async addStatistic(statistic: {
-    eventType: any;
-    email: string;
-    templateId: string;
-  }): Promise<{
+  async addStatistic(statistic: { eventType: any; email: string; templateId: string }): Promise<{
     status: number;
     error: boolean;
   }> {
@@ -124,7 +120,7 @@ export class EmailsController {
     const updatedRecipients = await this.db.updateOrPatch("recipients", userId, {
       $addToSet: {
         cleaned: audiences,
-        unsentCampaigns: [mongoose.Types.ObjectId(templateId)],
+        unsentCampaigns: [new mongoose.Types.ObjectId(templateId)],
       },
       $pull: { subscribed: { $in: [audiences] } },
     });
@@ -229,7 +225,7 @@ export class EmailsController {
       },
       {
         $match: {
-          templateId: mongoose.Types.ObjectId(req.params.templateId),
+          templateId: new mongoose.Types.ObjectId(req.params.templateId),
         },
       },
     ]);

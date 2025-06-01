@@ -1,4 +1,4 @@
-import { NextFunction, Request, Response } from "express";
+import { ErrorRequestHandler, NextFunction, Request, Response } from "express";
 import { IRoutesResponse } from "../interfaces";
 
 interface IResponse {
@@ -42,7 +42,8 @@ class ResponseManager {
   }
 
   success(status: string | number, message: string | any = "", data: any[] = [], meta: {} = {}): IResponse {
-    const code = status === ("POST" || "PUT") ? 201 : status === "DELETE" ? 204 : 200;
+    const code = status === "POST" || status === "PUT" ? 201 : status === "DELETE" ? 204 : 200;
+
     return { code, response: { status: "success", message, data, meta } };
   }
 
@@ -96,8 +97,9 @@ class ResponseManager {
   }
 }
 
-export const response = (dataResponse: IRoutesResponse, req: Request, res: Response, next: NextFunction): void => {
-  const { message = "", status = "error", data = [], meta = {} } = dataResponse;
+export const response: ErrorRequestHandler = (err, req, res, next) => {
+  const { message = "", status = "error", data = [], meta = {} } = err as IRoutesResponse;
+
   const rs = new ResponseManager(res);
   const { code, response } = rs.response({ status, message, data, meta });
   rs.send(code, { ...response });

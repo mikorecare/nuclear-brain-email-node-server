@@ -18,12 +18,18 @@ export class TemplateController {
   modelName: IModelNames = "templates";
   constructor(private db: Database) {}
 
+  parseQueryParam(param: unknown, defaultValue: number): number {
+    const val = Array.isArray(param) ? param[0] : param;
+    const parsed = parseInt(val as string);
+    return isNaN(parsed) ? defaultValue : parsed;
+  }
+
   @Get({ path: "/", validations: [] })
   async get(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const fromMonth = req.query.fromMonth ? parseInt(req.query.fromMonth) : 5;
-    const fromYear = req.query.fromYear ? parseInt(req.query.fromYear) : 2025;
-    const toMonth = req.query.toMonth ? parseInt(req.query.toMonth) : 12;
-    const toYear = req.query.toYear ? parseInt(req.query.toYear) : 2025;
+    const fromMonth = this.parseQueryParam(req.query.fromMonth, 5);
+    const fromYear = this.parseQueryParam(req.query.fromYear, 2025);
+    const toMonth = this.parseQueryParam(req.query.toMonth, 12);
+    const toYear = this.parseQueryParam(req.query.toYear, 2025);
 
     const startDate = new Date(fromYear, fromMonth - 1, 1); // Months are 0-based in JavaScript Date
     const endDate = new Date(toYear, toMonth, 0, 23, 59, 59, 999); // Last day of the month, hours, minutes, seconds, milliseconds

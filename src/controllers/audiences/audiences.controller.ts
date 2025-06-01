@@ -12,7 +12,9 @@ export class AudienceController {
   modelName: IModelNames = "audiences";
 
   constructor(private db: Database) {}
-
+  newAudienceModel(body: any, createdBy: any): any {
+    return this.db.newModel(this.modelName, { ...body, _id: new mongoose.Types.ObjectId(), createdBy });
+  }
   getAudienceAggregationPipeline(m: number): any {
     const subscribed = { $size: { $ifNull: ["$subscribed", []] } };
     const unsubscribed = { $size: { $ifNull: ["$unsubscribed", []] } };
@@ -42,7 +44,8 @@ export class AudienceController {
 
   @Get({ path: "/", validations: [] })
   async get(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const m = req.query.month ? parseInt(req.query.month) : 5;
+    const monthRaw = req.query.month;
+    const m = typeof monthRaw === "string" ? parseInt(monthRaw, 10) : 5;
 
     const { result, error, message } = await this.db.aggregate(this.modelName, this.getAudienceAggregationPipeline(m));
     if (error) {
@@ -51,7 +54,7 @@ export class AudienceController {
     const data = result.map((q: any) => {
       return { ...q };
     });
-    return next({ data, message: "Succesfully get audiences list", status: 200 });
+    return next({ data, message: "Successfully get audiences list", status: 200 });
   }
 
   async getSubscribers(id: string, page: number, key: string, next: Function): Promise<any> {
@@ -79,16 +82,14 @@ export class AudienceController {
 
   @Get({ path: "/:id", validations: [] })
   async getById(req: Request, _: Response, next: NextFunction): Promise<void> {
-    const { page = 1 } = req.query;
+    const pageRaw = req.query.page;
+    const page = typeof pageRaw === "string" ? parseInt(pageRaw, 10) : 1;
+
     const audience = await this.getAudiences(req.params.id, next);
     const subscribers = await this.getSubscribers(req.params.id, page, "subscribed", next);
     const unsubscribers = await this.getSubscribers(req.params.id, page, "unsubscribed", next);
     const data = { ...audience.result[0], recipients: { subs: [...subscribers.result], unsubs: [...unsubscribers.result] } };
     return next({ data, message: "Successfully get audiences information", status: 200 });
-  }
-
-  newAudienceModel(body: any, createdBy: any): any {
-    return this.db.newModel(this.modelName, { ...body, _id: new mongoose.Types.ObjectId(), createdBy });
   }
 
   @Post({ path: "/", validations: [] })

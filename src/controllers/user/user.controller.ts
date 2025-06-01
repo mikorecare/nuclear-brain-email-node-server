@@ -24,7 +24,10 @@ export class UserController {
   isAborted: boolean = false;
   templateId: any;
 
-  constructor(private db: Database, private config: Config) {}
+  constructor(
+    private db: Database,
+    private config: Config
+  ) {}
 
   @Get({ path: "/stream", validations: [] })
   stream(req: Request, res: Response, next: NextFunction): void {
@@ -290,7 +293,7 @@ export class UserController {
         return resolve({ status: "error", message: audienceData.error });
       }
 
-      const currentAudience = audienceData.result.filter((q: any) => JSON.stringify(q._id) === JSON.stringify(mongoose.Types.ObjectId(audiences)));
+      const currentAudience = audienceData.result.filter((q: any) => JSON.stringify(q._id) === JSON.stringify(new mongoose.Types.ObjectId(audiences)));
 
       if (!currentAudience.length) {
         return resolve({ status: "error", message: "Audience not found" });
@@ -315,7 +318,7 @@ export class UserController {
         return resolve({ status: "error", message: segmentData.error });
       }
 
-      const currentSegment = segmentData.result.filter((q: any) => JSON.stringify(q._id) === JSON.stringify(mongoose.Types.ObjectId(segments)));
+      const currentSegment = segmentData.result.filter((q: any) => JSON.stringify(q._id) === JSON.stringify(new mongoose.Types.ObjectId(segments)));
 
       if (!currentSegment.length) {
         return resolve({ status: "error", message: "Segment not found" });
@@ -459,7 +462,7 @@ export class UserController {
         const updateManyRecipients = this.db.updateMany(
           "recipients",
           { email: { $in: tempEmailAddToSet } },
-          { $addToSet: { sentCampaigns: [mongoose.Types.ObjectId(template)] } }
+          { $addToSet: { sentCampaigns: [new mongoose.Types.ObjectId(template)] } }
         );
         socketManager.emitter("email-buffer", {
           current: sent,
@@ -569,14 +572,15 @@ export class UserController {
     return 1;
   }
 
-  generateHash(value: string): Promise<string> {
+  generateHash(value?: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      bcrypt.hash(value, 10, (err, hash) => {
-        if (err) {
-          return reject(err);
-        }
+      if (!value) {
+        return reject(new Error("Value is undefined or empty"));
+      }
 
-        return resolve(hash);
+      bcrypt.hash(value, 10, (err, hash) => {
+        if (err) return reject(err);
+        return resolve(hash || "");
       });
     });
   }
