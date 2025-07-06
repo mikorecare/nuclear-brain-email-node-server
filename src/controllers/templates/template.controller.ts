@@ -70,7 +70,7 @@ export class TemplateController {
 
     if (!error) {
       if (!result.length) {
-        return next({ status: 404, data: [] });
+        return next({ status: 404, data: [], message: "No Data Found" });
       }
       return next({ status: 200, data: result, message: "Successfully get templates" });
     } else {

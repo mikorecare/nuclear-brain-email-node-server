@@ -20,7 +20,7 @@ export class AudienceController {
     const unsubscribed = { $size: { $ifNull: ["$unsubscribed", []] } };
 
     const pastMonths = new Date();
-    pastMonths.setMonth(pastMonths.getMonth() - m);
+    pastMonths.setMonth(pastMonths.getMonth() - 5);
 
     return [
       {
@@ -36,7 +36,7 @@ export class AudienceController {
       {
         $match: {
           isDeleted: { $ne: true },
-          // dateCreated: { $gte: pastMonths }, // Get only the past 3 months
+          dateCreated: { $gte: pastMonths }, // Get only the past 3 months
         },
       },
     ];
