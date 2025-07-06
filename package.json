@@ -17,7 +17,8 @@
     "trailingComma": "es5"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.821.0",
+    "@aws-sdk/client-elastic-transcoder": "^3.840.0",
+    "@aws-sdk/client-s3": "^3.842.0",
     "@aws-sdk/client-ses": "^3.821.0",
     "@aws-sdk/credential-provider-env": "^3.821.0",
     "@aws-sdk/credential-providers": "^3.821.0",
@@ -26,7 +27,6 @@
     "ansi-colors": "^4.1.3",
     "async": "^3.2.6",
     "atob": "^2.1.2",
-    "aws-sdk": "^2.1692.0",
     "bcryptjs": "^3.0.2",
     "body-parser": "^2.2.0",
     "btoa": "^1.2.1",
@@ -46,7 +46,7 @@
     "mongoose-paginate": "^5.0.3",
     "morgan": "^1.10.0",
     "multer": "^2.0.0",
-    "multer-s3": "^3.0.1",
+    "multer-s3-v3": "^33.0.12",
     "plugin-error": "^2.0.1",
     "prettier": "^3.5.3",
     "reflect-metadata": "^0.2.2",

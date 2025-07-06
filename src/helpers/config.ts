@@ -1,5 +1,6 @@
-import AWS, { ElasticTranscoder } from "aws-sdk";
 import { config } from "dotenv";
+import { ElasticTranscoderClient, ElasticTranscoderClientConfig } from "@aws-sdk/client-elastic-transcoder";
+
 config();
 
 export class Config {
@@ -11,12 +12,15 @@ export class Config {
   HASH_ID_SALT: string = process.env.HASH_ID_SALT || "HASH_ID_SALT_UNDEFINED";
   EMAIL_WEBSITE_URL: string = process.env.EMAIL_WEBSITE_URL || "EMAIL_WEBSITE_URL_UNDEFINED";
 
-  createAwsTranscoder(): ElasticTranscoder {
-    return new AWS.ElasticTranscoder({
-      accessKeyId: this.IAM_ID,
-      apiVersion: "2012-09-25",
+  createAwsTranscoder(): ElasticTranscoderClient {
+    const config: ElasticTranscoderClientConfig = {
       region: "us-east-1",
-      secretAccessKey: this.IAM_SECRET,
-    });
+      credentials: {
+        accessKeyId: this.IAM_ID,
+        secretAccessKey: this.IAM_SECRET,
+      },
+    };
+
+    return new ElasticTranscoderClient(config);
   }
 }

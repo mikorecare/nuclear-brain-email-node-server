@@ -54,7 +54,7 @@ export class Database {
 
   findAndCount(modelName: IModelNames, query: any): Promise<number> {
     const que = Array.isArray(query) ? { [query[0]]: query[1] } : query;
-    return this.model.getModel(modelName).find(que).lean().count();
+    return this.model.getModel(modelName).find(que).lean().countDocuments();
   }
 
   findById(modelName: IModelNames, id: string): Promise<IDatabaseResponse> {
@@ -150,13 +150,13 @@ export class Database {
     });
   }
 
-  insertMany(modelName: IModelNames, items: [any]): Promise<any> {
+  insertMany(modelName: IModelNames, items: any[]): Promise<any> {
     return new Promise((resolve, reject): void => {
       this.model
         .getModel(modelName)
         .insertMany(items, { ordered: false })
         .then((data: any) => resolve(data))
-        .catch((error: Error) => resolve(error));
+        .catch((error: Error) => reject(error));
     });
   }
 

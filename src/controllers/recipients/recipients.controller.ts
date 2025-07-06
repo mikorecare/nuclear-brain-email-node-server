@@ -10,6 +10,17 @@ import { uniqBy, chunk } from "lodash";
 import { eachSeries } from "async";
 import { socketManager } from "../../index";
 import { AsyncParser } from "json2csv";
+import { getArraySizeInMB } from "../../helpers/get-array-size-in-mb";
+
+interface IImportBody {
+  segmentId?: string;
+  audienceId: string;
+  status: "subscribed" | "unsubscribed" | "cleaned";
+}
+
+interface ImportParams {
+  [key: string]: string;
+}
 @Controller("/recipients")
 export class RecipientController {
   updates: any = {};
@@ -17,13 +28,155 @@ export class RecipientController {
   modelName: IModelNames = "recipients";
 
   constructor(private db: Database) {}
+
+  private async handleFileUpload(req: Request, res: Response, type: string): Promise<void> {
+    const temp = `${+new Date()}`;
+    const { error }: any = await new Promise(resolve => {
+      uploadSingleFile("csv", temp)(req, res, (err: any, data: any) => {
+        if (err) {
+          resolve({ error: true });
+        } else {
+          resolve({ error: false, data, err });
+        }
+      });
+    });
+
+    if (error || !req.file) {
+      throw { status: 400, message: "csv is required" };
+    }
+  }
+
+  private validateImportParams(file: Express.Multer.File, type: string, status: string): void {
+    if (path.extname(file.originalname) !== `.${type}`) {
+      throw { status: 401, message: `Invalid ${type} uploaded` };
+    }
+
+    const statusArray = ["cleaned", "subscribed", "unsubscribed"];
+    if (!statusArray.includes(status)) {
+      throw { status: 401, message: "Invalid `status` supplied. Supported statuses: subscribed || unsubscribed || cleaned" };
+    }
+  }
+
+  private async parseAndValidateCsv(filePath: string, session: any, audienceId: string, status: string): Promise<any[]> {
+    let json = await csvtojson().fromFile(filePath);
+    if (!json.length) return [];
+
+    const hasEmail = Object.keys(json[0]).find(k => /email/i.test(k));
+    const firstnameKey = Object.keys(json[0]).find(k => /first/i.test(k));
+    const lastnameKey = Object.keys(json[0]).find(k => /last/i.test(k));
+    const birthdayKey = Object.keys(json[0]).find(k => /birth/i.test(k));
+
+    if (!hasEmail || !firstnameKey || !lastnameKey || !birthdayKey) {
+      throw { status: 403, message: "`Email Address`, `First Name`, `Last Name`, and `Birth Date` fields are required on CSV" };
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    return uniqBy(
+      json
+        .map(item => {
+          const email = item[hasEmail].toLowerCase();
+          if (!emailRegex.test(email)) return null;
+
+          return {
+            birthDate: item[birthdayKey],
+            createdBy: session,
+            email,
+            firstName: item[firstnameKey],
+            lastName: item[lastnameKey],
+            [status]: audienceId,
+          };
+        })
+        .filter(Boolean),
+      "email"
+    );
+  }
+
+  private async processRecipients(json: any[], audienceId: string, segmentId: string, status: string, session: any): Promise<{ count: number }> {
+    let totalProcessed = 0;
+    const addToSets = ["cleaned", "subscribed", "unsubscribed"].filter(s => s !== status);
+    const chunks = chunk(json, 5000);
+
+    for (const group of chunks) {
+      let chunkedIds: any[] = [];
+
+      try {
+        const inserted = await this.db.insertMany(this.modelName, group); // already has { ordered: false }
+
+        // Get _id from successfully inserted docs
+        if (Array.isArray(inserted)) {
+          chunkedIds.push(...inserted.map((q: any) => q._id));
+        }
+      } catch (error: any) {
+        const isDupError = error.name === "MongoBulkWriteError" || error.code === 11000;
+
+        if (isDupError) {
+          // Partial insert: get inserted docs first (works in many Mongo clients)
+          const insertedDocs = error.result?.result?.insertedDocs ?? error.insertedDocs ?? [];
+          chunkedIds.push(...insertedDocs.map((doc: any) => doc._id));
+
+          // Then handle failed ones by email (to get _id of duplicates)
+          const duplicateEmails = error?.writeErrors?.map((e: any) => e.err.op.email) ?? [];
+
+          if (duplicateEmails.length > 0) {
+            const existing = await this.db.find(this.modelName, { email: { $in: duplicateEmails }, isDeleted: false }, "_id", {}, "", 5000);
+            chunkedIds.push(...existing.result.map((q: any) => q._id));
+          }
+        } else {
+          throw error;
+        }
+      }
+
+      totalProcessed += group.length;
+
+      socketManager.emitter("upload-file", { status: "Updating Audiences..." });
+
+      await this.db.updateOrPatch("audiences", audienceId, {
+        $addToSet: { [status]: chunkedIds },
+        $pull: {
+          [addToSets[0]]: { $in: chunkedIds },
+          [addToSets[1]]: { $in: chunkedIds },
+        },
+      });
+
+      if (mongoose.Types.ObjectId.isValid(segmentId)) {
+        socketManager.emitter("upload-file", { status: "Updating Segments..." });
+
+        await this.db.updateOrPatch("segments", segmentId, {
+          $addToSet: { [status]: chunkedIds },
+          $pull: {
+            [addToSets[0]]: { $in: chunkedIds },
+            [addToSets[1]]: { $in: chunkedIds },
+          },
+        });
+      }
+
+      const percentage = Math.round((totalProcessed / json.length) * 100);
+      socketManager.emitter("upload-file", {
+        percentage: `${percentage}%`,
+        sent: totalProcessed === json.length,
+        message: totalProcessed === json.length ? json.length : "",
+        status: totalProcessed === json.length ? "Finishing..." : "Chunking Files...",
+      });
+    }
+
+    return { count: totalProcessed };
+  }
+
   @Get({ path: "/total", validations: [] })
   async getTotalCustomers(req: Request, res: Response, next: NextFunction): Promise<void> {
     const total = await this.db.findAndCount(this.modelName, { isDeleted: false });
     if (!total || total <= 0) {
-      return next({ status: 403, message: `error: no recipients found`, data: null });
+      res.status(404).json({
+        message: "No recipients found",
+        data: null,
+      });
     }
-    next({ status: 200, message: `successfully retrieved the total number of recipients`, data: total });
+
+    res.status(200).json({
+      message: "Successfully retrieved the total number of recipients",
+      data: total,
+    });
   }
 
   @Get({ path: "/", validations: [] })
@@ -204,7 +357,7 @@ export class RecipientController {
     try {
       const { audienceId } = req.params;
 
-      const query = { subscribed: { $elemMatch: { $eq: audienceId } }, isDeleted: false };
+      const query = { subscribed: new mongoose.Types.ObjectId(audienceId), isDeleted: false };
       const { error, result } = await this.db.find(
         "recipients",
         query,
@@ -279,199 +432,36 @@ export class RecipientController {
   }
 
   @Post({ path: "/import/:type", validations: [] })
-  async importRecipients(req: Request, res: Response, next: NextFunction): Promise<void> {
-    // socketListener("upload-file", true);
-    const { type } = req.params;
-    const temp = `${+new Date()}`;
-    const { error }: any = await new Promise((resolve: Function) => {
-      uploadSingleFile("csv", temp)(req, res, (err: any, data: any) => {
-        if (err) {
-          resolve({ error: true });
-        } else {
-          resolve({ error: false, data, err });
-        }
+  async importRecipients(req: Request<ImportParams, {}, IImportBody>, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await this.handleFileUpload(req, res, "csv");
+      const { segmentId, audienceId, status }: IImportBody = req.body ?? {};
+      const statusFinal = status?.toLowerCase() || "";
+
+      this.validateImportParams(req.file, "csv", statusFinal);
+
+      const json = await this.parseAndValidateCsv(req.file.path, req.session, audienceId, statusFinal);
+      if (!json.length) {
+        return next({ status: 403, message: "CSV is empty or no valid emails" });
+      }
+
+      socketManager.emitter("upload-file", { status: "Preparing your file..." });
+
+      const result = await this.processRecipients(json, audienceId, segmentId || "", statusFinal, req.session);
+
+      socketManager.emitter("upload-file", {
+        status: `${result.count} valid users out of ${json.length} users`,
       });
-    });
 
-    if (error) {
-      return next({ status: 400, message: "Error upon importing users." });
-    }
-
-    if (!req.file) {
-      return next({ status: 401, message: "csv is required" });
-    }
-
-    if (path.extname(req.file.originalname) !== `.${type}`) {
-      return next({ status: 401, message: `Invalid ${type} uploaded` });
-    }
-    const statusArray = ["cleaned", "subscribed", "unsubscribed"];
-    const { segmentId } = req.body;
-    const { audienceId } = req.body;
-    const { status } = req.body;
-
-    if (!statusArray.includes(status)) {
-      return next({ status: 401, message: "Invalid `status` supplied. Supported statuses: subscribed || unsubscribed || cleaned " });
-    }
-    const addToSets = statusArray.filter(q => q !== status);
-    // console.log("AddToSets: ", addToSets);
-    csvtojson()
-      .fromFile(req.file.path)
-      .then(async (json: any) => {
-        if (!json.length) {
-          return next({ status: 403, message: "CSV is empty" });
-        }
-
-        const hasEmail = Object.keys(json[0]).filter((key: any) => /email/i.test(key))[0] ?? null;
-        const firstnameKey = Object.keys(json[0]).filter((key: any) => /first/i.test(key))[0] ?? null;
-        const lastnameKey = Object.keys(json[0]).filter((key: any) => /last/i.test(key))[0] ?? null;
-        const birthdayKey = Object.keys(json[0]).filter((key: any) => /birth/i.test(key))[0] ?? null;
-
-        if (!hasEmail) {
-          return next({ status: 403, message: "`Email Address` field is required on CSV" });
-        }
-
-        if (!firstnameKey) {
-          return next({ status: 403, message: "`First Name` field is required on CSV" });
-        }
-
-        if (!lastnameKey) {
-          return next({ status: 403, message: "`Last Name` field is required on CSV" });
-        }
-
-        if (!birthdayKey) {
-          return next({ status: 403, message: "`Birth Date` field is required on CSV" });
-        }
-
-        const emailRegex =
-          /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
-
-        json = uniqBy(
-          json
-            .filter((q: any) => q[hasEmail])
-            .map((item: any) => {
-              const email = item[hasEmail].toLowerCase();
-
-              // Check if the email is valid using the regex
-              if (!emailRegex.test(email)) {
-                // If not valid, you can handle it accordingly (skip, log, etc.)
-                console.warn(`Invalid email: ${email}`);
-                return null;
-              }
-
-              return {
-                birthDate: item[birthdayKey],
-                createdBy: req.session,
-                email: email,
-                firstName: item[firstnameKey],
-                lastName: item[lastnameKey],
-                [status]: audienceId,
-              };
-            })
-            .filter((item: any) => item !== null), // Remove items with invalid emails
-          "email"
-        );
-
-        // console.log("Json Length:", json.length);
-
-        // const asyncFilter = async (arr: any, predicate: any) => {
-        //   const results = await Promise.all(arr.map(predicate));
-        //   return arr.filter((_v: any, index: any) => results[index]);
-        // };
-
-        // const asyncRes = await asyncFilter(json, async (q: any) => {
-        //   const ec = new EmailChecker();
-        //   const res = await ec.check(q.email);
-        //   return res;
-        // });
-        // json = asyncRes;
-
-        let i = 0;
-        let j = 0;
-        let percentage;
-        socketManager.emitter("upload-file", { status: "Preparing your file..." });
-        await Promise.all(
-          chunk(json, 5000).map(async (q: any) => {
-            const data = await this.db.insertMany(this.modelName, q);
-            if (Array.isArray(data)) {
-              console.log("isArray: ", true);
-              const chunked = data.map(q => q._id);
-              socketManager.emitter("upload-file", { status: "Updating Audiences..." });
-              await this.db.updateOrPatch("audiences", audienceId, {
-                $addToSet: {
-                  [status]: chunked,
-                },
-              });
-              if (mongoose.Types.ObjectId.isValid(segmentId)) {
-                socketManager.emitter("upload-file", { status: "Updating Segments..." });
-                await this.db.updateOrPatch("segments", segmentId, {
-                  $addToSet: {
-                    [status]: chunked,
-                  },
-                });
-              }
-            } else {
-              socketManager.emitter("upload-file", { status: "Cleaning-up..." });
-              const emails = data.result.result.writeErrors.map((q: any) => {
-                return q.err.op.email;
-              });
-              socketManager.emitter("upload-file", { status: "Extracting unique recipients..." });
-              const trueIds = await this.db.find(this.modelName, { email: { $in: emails }, isDeleted: false }, "_id", {}, "", 5000);
-              const ids = trueIds.result.map((q: any) => q._id);
-              socketManager.emitter("upload-file", { status: "Updating recipients ..." });
-              j += ids.length;
-              i += q.length;
-              percentage = Math.round((i / json.length) * 100);
-              i == json.length
-                ? await socketManager.emitter("upload-file", { percentage: percentage + "%", sent: true, message: json.length, status: "Finishing..." })
-                : await socketManager.emitter("upload-file", { percentage: percentage + "%", sent: false, message: "", status: "Chunking Files..." });
-              await this.db.updateMany(
-                this.modelName,
-                { _id: ids },
-                {
-                  $addToSet: {
-                    [status]: audienceId,
-                  },
-                  $pull: {
-                    [addToSets[0]]: { $in: [audienceId] },
-                    [addToSets[1]]: { $in: [audienceId] },
-                  },
-                  updatedBy: req.session,
-                }
-              );
-              socketManager.emitter("upload-file", { status: "Saving audience data..." });
-              await this.db.updateOrPatch("audiences", audienceId, {
-                $addToSet: {
-                  [status]: ids,
-                },
-                $pull: {
-                  [addToSets[0]]: { $in: ids },
-                  [addToSets[1]]: { $in: ids },
-                },
-              });
-              if (mongoose.Types.ObjectId.isValid(segmentId)) {
-                socketManager.emitter("upload-file", { status: "Saving segment data..." });
-                await this.db.updateOrPatch("segments", segmentId, {
-                  $addToSet: {
-                    [status]: ids,
-                  },
-                  $pull: {
-                    [addToSets[0]]: { $in: ids },
-                    [addToSets[1]]: { $in: ids },
-                  },
-                });
-              }
-            }
-          })
-        )
-          .then(() => {
-            socketManager.emitter("upload-file", { status: `${i} valid users out of ${json.length} users` });
-            // socketListener("upload-file", false);
-            return next({ status: 200, data: json, message: `${i} valid users out of ${json.length} users` });
-          })
-          .catch(err => {
-            return next({ status: 404, message: err });
-          });
+      return next({
+        status: 200,
+        data: json,
+        message: `${json.length} valid users out of ${json.length} users`,
       });
+    } catch (err: any) {
+      console.error(err);
+      return next({ status: err.status || 500, message: err.message || "Server error" });
+    }
   }
 
   @Patch({ path: "/:id", validations: [] })
@@ -542,98 +532,98 @@ export class RecipientController {
     }
   }
 
-  @Post({ path: "/embed" })
-  async embedPostRecipients(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { id, fname, lname, email } = req.body;
-      console.log(fname[0].toUpperCase());
-      if (email && !validateEmail(email)) {
-        return next({ status: 403, message: "`email` is invalid!" });
-      }
+  // @Post({ path: "/embed" })
+  // async embedPostRecipients(req: Request, res: Response, next: NextFunction): Promise<void> {
+  //   try {
+  //     const { id, fname, lname, email } = req.body;
+  //     console.log(fname[0].toUpperCase());
+  //     if (email && !validateEmail(email)) {
+  //       return next({ status: 403, message: "`email` is invalid!" });
+  //     }
 
-      const getAudience = await this.db.find("audiences", { _id: id });
+  //     const getAudience = await this.db.find("audiences", { _id: id });
 
-      if (getAudience.error) {
-        console.log("No Audience found");
-        return next({ status: 422, message: "no audience" });
-      }
+  //     if (getAudience.error) {
+  //       console.log("No Audience found");
+  //       return next({ status: 422, message: "no audience" });
+  //     }
 
-      console.log("Found audience: " + getAudience.result[0].name);
+  //     console.log("Found audience: " + getAudience.result[0].name);
 
-      const getEmail = await this.db.find("recipients", { email: email.toLowerCase() });
-      if (getEmail.result.length == 0) {
-        await this.db.insertMany("recipients", [
-          {
-            email: email.toLowerCase(),
-            firstName: fname,
-            lastName: lname,
-            $addToSet: {
-              subscribed: [id],
-            },
-          },
-        ]);
-        const getnewId = await this.db.find("recipients", { email: email });
-        await this.db.findOneAndUpdate(
-          "recipients",
-          { _id: getnewId.result[0]._id },
-          {
-            $addToSet: {
-              subscribed: [id],
-            },
-          }
-        );
-        await this.db.findOneAndUpdate(
-          "audiences",
-          { _id: id },
-          {
-            $addToSet: {
-              subscribed: [getnewId.result[0]._id],
-            },
-          }
-        );
-        return next({ message: "Updated successfully!", status: 200 });
-      }
+  //     const getEmail = await this.db.find("recipients", { email: email.toLowerCase() });
+  //     if (getEmail.result.length == 0) {
+  //       await this.db.insertMany("recipients", [
+  //         {
+  //           email: email.toLowerCase(),
+  //           firstName: fname,
+  //           lastName: lname,
+  //           $addToSet: {
+  //             subscribed: [id],
+  //           },
+  //         },
+  //       ]);
+  //       const getnewId = await this.db.find("recipients", { email: email });
+  //       await this.db.findOneAndUpdate(
+  //         "recipients",
+  //         { _id: getnewId.result[0]._id },
+  //         {
+  //           $addToSet: {
+  //             subscribed: [id],
+  //           },
+  //         }
+  //       );
+  //       await this.db.findOneAndUpdate(
+  //         "audiences",
+  //         { _id: id },
+  //         {
+  //           $addToSet: {
+  //             subscribed: [getnewId.result[0]._id],
+  //           },
+  //         }
+  //       );
+  //       return next({ message: "Updated successfully!", status: 200 });
+  //     }
 
-      if (getEmail.result.length >= 1) {
-        const verifySub = await this.db.find("recipients", { _id: getEmail.result[0]._id, subscribed: { $elemMatch: { $eq: id } } });
-        if (verifySub.result.length == 0) {
-          await this.db.findOneAndUpdate(
-            "recipients",
-            { _id: getEmail.result[0]._id },
-            {
-              $addToSet: {
-                subscribed: [id],
-              },
-            }
-          );
-        }
-      }
+  //     if (getEmail.result.length >= 1) {
+  //       const verifySub = await this.db.find("recipients", { _id: getEmail.result[0]._id, subscribed: { $elemMatch: { $eq: id } } });
+  //       if (verifySub.result.length == 0) {
+  //         await this.db.findOneAndUpdate(
+  //           "recipients",
+  //           { _id: getEmail.result[0]._id },
+  //           {
+  //             $addToSet: {
+  //               subscribed: [id],
+  //             },
+  //           }
+  //         );
+  //       }
+  //     }
 
-      const verifyAudience = await this.db.find("audiences", { _id: id, subscribed: { $elemMatch: { $eq: getEmail.result[0]._id } } });
-      console.log("Customer ID: " + getEmail.result[0]._id);
-      if (verifyAudience.result.length == 0) {
-        await this.db.findOneAndUpdate(
-          "audiences",
-          { _id: id },
-          {
-            $addToSet: {
-              subscribed: [getEmail.result[0]._id],
-            },
-          }
-        );
-      }
+  //     const verifyAudience = await this.db.find("audiences", { _id: id, subscribed: { $elemMatch: { $eq: getEmail.result[0]._id } } });
+  //     console.log("Customer ID: " + getEmail.result[0]._id);
+  //     if (verifyAudience.result.length == 0) {
+  //       await this.db.findOneAndUpdate(
+  //         "audiences",
+  //         { _id: id },
+  //         {
+  //           $addToSet: {
+  //             subscribed: [getEmail.result[0]._id],
+  //           },
+  //         }
+  //       );
+  //     }
 
-      return next({ message: "Updated successfully!", status: 200 });
-    } catch (error) {
-      next({ message: error, status: 400 });
-    }
-  }
+  //     return next({ message: "Updated successfully!", status: 200 });
+  //   } catch (error) {
+  //     next({ message: error, status: 400 });
+  //   }
+  // }
 
   @Get({ path: "/unsubscribe/verify/:id" })
   async verify(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { email, audiences } = JSON.parse(decrypt(req.params.id));
-      const { error, result } = await this.db.find(this.modelName, { email, subscribed: { $elemMatch: { $eq: audiences } } });
+      const { error, result } = await this.db.find(this.modelName, { email, subscribed: new mongoose.Types.ObjectId(String(audiences)) });
 
       if (error || !result.length) {
         return next({ status: 401, message: "Invalid hash string" });
@@ -663,7 +653,7 @@ export class RecipientController {
     try {
       const { email, audiences } = JSON.parse(decrypt(req.params.id));
 
-      const query = { email, subscribed: { $elemMatch: { $eq: audiences } } };
+      const query = { email, subscribed: new mongoose.Types.ObjectId(String(audiences)) };
       const { error, result: recipient, message } = await this.db.find(this.modelName, query, "_id");
 
       if (error) {

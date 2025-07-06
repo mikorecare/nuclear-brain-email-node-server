@@ -343,7 +343,7 @@ export class UserController {
     startPage = 1;
     let sent = startPage <= 1 ? 0 : (startPage - 1) * itemPerPage;
     if (audiences && mongoose.Types.ObjectId.isValid(audiences)) {
-      const checkAudiences = await this.getAudiences(audiences);
+      const checkAudiences: { status: true | "error"; subscribers: number } = await this.getAudiences(audiences);
 
       if (checkAudiences.status === "error") {
         console.log(checkAudiences);
@@ -352,7 +352,7 @@ export class UserController {
 
       const checkSegments = mongoose.Types.ObjectId.isValid(segments) ? await this.getSegments(segments) : "";
       // console.log(checkSegments.status, checkSegments.subscribers);
-      const query = { subscribed: { $elemMatch: { $eq: audiences } }, isDeleted: false };
+      const query = { subscribed: new mongoose.Types.ObjectId(audiences), isDeleted: false };
       const subscribes = checkSegments.status === true ? checkSegments.subscribers : checkAudiences.subscribers;
       const totalPages = Math.ceil(subscribes / itemPerPage);
       const pages = [];
@@ -462,7 +462,7 @@ export class UserController {
         const updateManyRecipients = this.db.updateMany(
           "recipients",
           { email: { $in: tempEmailAddToSet } },
-          { $addToSet: { sentCampaigns: [new mongoose.Types.ObjectId(template)] } }
+          { $addToSet: { sentCampaigns: new mongoose.Types.ObjectId(template) } }
         );
         socketManager.emitter("email-buffer", {
           current: sent,

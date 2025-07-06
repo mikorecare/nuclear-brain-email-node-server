@@ -16,7 +16,7 @@ import {
 } from "@aws-sdk/client-ses";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import multer from "multer";
-import multerS3 from "multer-s3";
+import multerS3 from "multer-s3-v3";
 import { config } from "dotenv";
 
 config();

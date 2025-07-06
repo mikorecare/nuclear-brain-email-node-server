@@ -8,7 +8,6 @@ class SocketManager {
     if (emitType === "email-buffer" || emitType === "upload-file") {
       if (this.mySocket) {
         this.mySocket.emit(emitType, message);
-        console.log(`Socket sent<${emitType}> ${message.status}`);
       }
     }
   }
@@ -17,7 +16,6 @@ class SocketManager {
     if (received) {
       this.mySocket?.on(listenType, received);
       if (listenType === "upload-file") {
-        console.log("Socket received<Email Buffer>");
       }
     }
     if (!received) {
@@ -41,7 +39,7 @@ class SocketManager {
       socket.once("test-connect", (received: any) => {
         console.log(received);
       });
-      this.mySocket = socket; // Assign the socket instance
+      this.mySocket = socket;
     });
   }
 }

@@ -1,8 +1,13 @@
-import aws from "aws-sdk";
+import { S3Client, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import multer from "multer";
 import fs from "fs";
 import atob from "atob";
 import btoa from "btoa";
+import { config } from "dotenv";
+import { Readable } from "stream";
+
+config();
 
 interface ISendEmailParams {
   html: string;
@@ -11,52 +16,54 @@ interface ISendEmailParams {
   recipient: any;
 }
 
-const { AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, AWS_S3_BUCKET } = process.env;
-const updateAwsConfig = () => {
-  aws.config.update({
-    accessKeyId: AWS_ACCESS_KEY_ID,
-    region: AWS_REGION,
-    secretAccessKey: AWS_SECRET_ACCESS_KEY,
-  });
-};
+const { AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION } = process.env;
+
+const s3 = new S3Client({
+  region: AWS_REGION,
+  credentials: {
+    accessKeyId: AWS_ACCESS_KEY_ID!,
+    secretAccessKey: AWS_SECRET_ACCESS_KEY!,
+  },
+});
+
+const ses = new SESClient({
+  region: AWS_REGION,
+  credentials: {
+    accessKeyId: AWS_ACCESS_KEY_ID!,
+    secretAccessKey: AWS_SECRET_ACCESS_KEY!,
+  },
+});
 
 export const decrypt = (hash: any) => {
-  return atob(
-    hash
-      .split("")
-      .reverse()
-      .join("")
-  );
+  return atob(hash.split("").reverse().join(""));
 };
 
-export const downloadHtml = (bucket: string, key: string, res: any) => {
-  return new Promise((resolve, reject) => {
-    updateAwsConfig();
-    const s3 = new aws.S3();
-    const params = {
+export const downloadHtml = async (bucket: string, key: string): Promise<string> => {
+  try {
+    const command = new GetObjectCommand({
       Bucket: "cdn-email-wysiwyg",
       Key: `${bucket}/${key}`,
-    };
+    });
 
-    const file = fs.createWriteStream("temp.html");
-    s3.getObject(params)
-      .createReadStream()
-      .on("end", () => {
-        const data = fs.readFileSync("temp.html", "utf-8");
-        resolve(data);
-      })
-      .on("error", error => {
-        console.log(error, "downloadHTML() error");
-      })
-      .pipe(file);
-  });
+    const data = await s3.send(command);
+
+    const streamToString = (stream: Readable): Promise<string> =>
+      new Promise((resolve, reject) => {
+        const chunks: any[] = [];
+        stream.on("data", chunk => chunks.push(chunk));
+        stream.on("error", reject);
+        stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+      });
+
+    return await streamToString(data.Body as Readable);
+  } catch (err) {
+    console.log("downloadHtml() error", err);
+    throw err;
+  }
 };
 
 export const encrypt = (text: any) => {
-  return btoa(text)
-    .split("")
-    .reverse()
-    .join("");
+  return btoa(text).split("").reverse().join("");
 };
 
 export const getFileExtension = (filename: any) => `.${filename.split(".")[1]}`;
@@ -75,54 +82,40 @@ export const modifyEmailBeforeSending = (html: string, recipient: string): any =
   });
 };
 
-export const removeAwsS3File = (file: string): Promise<any> => {
-  return new Promise(resolve => {
-    updateAwsConfig();
-    const s3 = new aws.S3();
-    s3.deleteObject(
-      {
-        Bucket: "cdn-email-wysiwyg",
-        Key: file,
-      },
-      (err, data) => {
-        if (err) {
-          resolve(err);
-        } else {
-          resolve(data);
-        }
-      }
-    );
-  });
+export const removeAwsS3File = async (file: string): Promise<any> => {
+  try {
+    const command = new DeleteObjectCommand({
+      Bucket: "cdn-email-wysiwyg",
+      Key: file,
+    });
+    const data = await s3.send(command);
+    return data;
+  } catch (err) {
+    return err;
+  }
 };
 
-export const sendEmail = ({ sender, html, subject, recipient }: ISendEmailParams): Promise<any> => {
-  return new Promise(
-    async (resolve): Promise<void> => {
-      updateAwsConfig();
-      const ses = new aws.SES();
-      const newHtml = await modifyEmailBeforeSending(html, recipient);
-      ses.sendEmail(
-        {
-          Source: sender,
-          Destination: { ToAddresses: [recipient] },
-          Message: {
-            Subject: { Data: subject, Charset: "utf-8" },
-            Body: {
-              Text: { Data: "", Charset: "utf-8" },
-              Html: { Data: newHtml, Charset: "utf-8" },
-            },
-          },
+export const sendEmail = async ({ sender, html, subject, recipient }: ISendEmailParams): Promise<any> => {
+  try {
+    const newHtml = await modifyEmailBeforeSending(html, recipient);
+
+    const command = new SendEmailCommand({
+      Source: sender,
+      Destination: { ToAddresses: [recipient] },
+      Message: {
+        Subject: { Data: subject, Charset: "utf-8" },
+        Body: {
+          Html: { Data: newHtml, Charset: "utf-8" },
+          Text: { Data: "", Charset: "utf-8" },
         },
-        err => {
-          if (err) {
-            resolve({ sent: false, email: recipient, message: err.message });
-          } else {
-            resolve({ sent: true, email: recipient });
-          }
-        }
-      );
-    }
-  );
+      },
+    });
+
+    await ses.send(command);
+    return { sent: true, email: recipient };
+  } catch (err: any) {
+    return { sent: false, email: recipient, message: err.message };
+  }
 };
 
 export const titleCase = (str: string) => {

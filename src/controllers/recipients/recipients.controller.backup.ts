@@ -544,92 +544,92 @@ export class RecipientController {
     }
   }
 
-  @Post({ path: "/embed" })
-  async embedPostRecipients(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const { id, fname, lname, email } = req.body;
-      console.log(fname[0].toUpperCase());
-      if (email && !validateEmail(email)) {
-        return next({ status: 403, message: "`email` is invalid!" });
-      }
+  // @Post({ path: "/embed" })
+  // async embedPostRecipients(req: Request, res: Response, next: NextFunction): Promise<void> {
+  //   try {
+  //     const { id, fname, lname, email } = req.body;
+  //     console.log(fname[0].toUpperCase());
+  //     if (email && !validateEmail(email)) {
+  //       return next({ status: 403, message: "`email` is invalid!" });
+  //     }
 
-      const getAudience = await this.db.find("audiences", { _id: id });
+  //     const getAudience = await this.db.find("audiences", { _id: id });
 
-      if (getAudience.error) {
-        console.log("No Audience found");
-        return next({ status: 422, message: "no audience" });
-      }
+  //     if (getAudience.error) {
+  //       console.log("No Audience found");
+  //       return next({ status: 422, message: "no audience" });
+  //     }
 
-      console.log("Found audience: " + getAudience.result[0].name);
+  //     console.log("Found audience: " + getAudience.result[0].name);
 
-      const getEmail = await this.db.find("recipients", { email: email.toLowerCase() });
-      if (getEmail.result.length == 0) {
-        await this.db.insertMany("recipients", [
-          {
-            email: email.toLowerCase(),
-            firstName: fname,
-            lastName: lname,
-            $addToSet: {
-              subscribed: [id],
-            },
-          },
-        ]);
-        const getnewId = await this.db.find("recipients", { email: email });
-        await this.db.findOneAndUpdate(
-          "recipients",
-          { _id: getnewId.result[0]._id },
-          {
-            $addToSet: {
-              subscribed: [id],
-            },
-          }
-        );
-        await this.db.findOneAndUpdate(
-          "audiences",
-          { _id: id },
-          {
-            $addToSet: {
-              subscribed: [getnewId.result[0]._id],
-            },
-          }
-        );
-        return next({ message: "Updated successfully!", status: 200 });
-      }
+  //     const getEmail = await this.db.find("recipients", { email: email.toLowerCase() });
+  //     if (getEmail.result.length == 0) {
+  //       await this.db.insertMany("recipients", [
+  //         {
+  //           email: email.toLowerCase(),
+  //           firstName: fname,
+  //           lastName: lname,
+  //           $addToSet: {
+  //             subscribed: [id],
+  //           },
+  //         },
+  //       ]);
+  //       const getnewId = await this.db.find("recipients", { email: email });
+  //       await this.db.findOneAndUpdate(
+  //         "recipients",
+  //         { _id: getnewId.result[0]._id },
+  //         {
+  //           $addToSet: {
+  //             subscribed: [id],
+  //           },
+  //         }
+  //       );
+  //       await this.db.findOneAndUpdate(
+  //         "audiences",
+  //         { _id: id },
+  //         {
+  //           $addToSet: {
+  //             subscribed: [getnewId.result[0]._id],
+  //           },
+  //         }
+  //       );
+  //       return next({ message: "Updated successfully!", status: 200 });
+  //     }
 
-      if (getEmail.result.length >= 1) {
-        const verifySub = await this.db.find("recipients", { _id: getEmail.result[0]._id, subscribed: { $elemMatch: { $eq: id } } });
-        if (verifySub.result.length == 0) {
-          await this.db.findOneAndUpdate(
-            "recipients",
-            { _id: getEmail.result[0]._id },
-            {
-              $addToSet: {
-                subscribed: [id],
-              },
-            }
-          );
-        }
-      }
+  //     if (getEmail.result.length >= 1) {
+  //       const verifySub = await this.db.find("recipients", { _id: getEmail.result[0]._id, subscribed: { $elemMatch: { $eq: id } } });
+  //       if (verifySub.result.length == 0) {
+  //         await this.db.findOneAndUpdate(
+  //           "recipients",
+  //           { _id: getEmail.result[0]._id },
+  //           {
+  //             $addToSet: {
+  //               subscribed: [id],
+  //             },
+  //           }
+  //         );
+  //       }
+  //     }
 
-      const verifyAudience = await this.db.find("audiences", { _id: id, subscribed: { $elemMatch: { $eq: getEmail.result[0]._id } } });
-      console.log("Customer ID: " + getEmail.result[0]._id);
-      if (verifyAudience.result.length == 0) {
-        await this.db.findOneAndUpdate(
-          "audiences",
-          { _id: id },
-          {
-            $addToSet: {
-              subscribed: [getEmail.result[0]._id],
-            },
-          }
-        );
-      }
+  //     const verifyAudience = await this.db.find("audiences", { _id: id, subscribed: { $elemMatch: { $eq: getEmail.result[0]._id } } });
+  //     console.log("Customer ID: " + getEmail.result[0]._id);
+  //     if (verifyAudience.result.length == 0) {
+  //       await this.db.findOneAndUpdate(
+  //         "audiences",
+  //         { _id: id },
+  //         {
+  //           $addToSet: {
+  //             subscribed: [getEmail.result[0]._id],
+  //           },
+  //         }
+  //       );
+  //     }
 
-      return next({ message: "Updated successfully!", status: 200 });
-    } catch (error) {
-      next({ message: error, status: 400 });
-    }
-  }
+  //     return next({ message: "Updated successfully!", status: 200 });
+  //   } catch (error) {
+  //     next({ message: error, status: 400 });
+  //   }
+  // }
 
   @Get({ path: "/unsubscribe/verify/:id" })
   async verify(req: Request, res: Response, next: NextFunction): Promise<void> {

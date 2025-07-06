@@ -22,6 +22,7 @@ const recipientsSchema = new Schema(
     isDeleted: {
       default: false,
       type: Boolean,
+      index: true,
     },
     lastName: String,
     middleName: String,
